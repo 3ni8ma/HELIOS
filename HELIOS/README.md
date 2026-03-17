@@ -1,4 +1,7 @@
-# 🌐 HELIOS
+# HELIOS
+HELIOS is a browser-native, multimodal spatial operating system designed to bridge the gap between human intent and digital data. By fusing MediaPipe-powered neural hand tracking with Web Speech AI, it transforms the standard 2D browser into a 3D command center where data is manipulated as a physical entity.
+
+# HELIOS
 
 **A Real-Time Spatial Web Browser with Gesture + Voice Control**
 
@@ -6,7 +9,7 @@ HELIOS is a fully functional web browser built inside a 3D spatial environment. 
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Open HELIOS
 Simply open `index.html` in a modern web browser (Chrome/Edge recommended).
@@ -20,9 +23,9 @@ Your workspace is now active. Use gestures or voice commands to control the syst
 
 ---
 
-## 🎮 Controls
+## Controls
 
-### ✋ Gesture Controls
+### Gesture Controls
 
 | Gesture | Action |
 |---------|--------|
@@ -34,7 +37,7 @@ Your workspace is now active. Use gestures or voice commands to control the syst
 | **Open Palm** | Show overview (planned) |
 | **Two-Hand Stretch** | Resize window (planned) |
 
-### 🎙️ Voice Commands
+### Voice Commands
 
 | Command | Action |
 |---------|--------|
@@ -73,38 +76,38 @@ Your workspace is now active. Use gestures or voice commands to control the syst
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 HELIOS consists of **5 integrated subsystems**:
 
-### 1️⃣ Rendering Engine (`RenderEngine.js`)
+### Rendering Engine (`RenderEngine.js`)
 - Three.js-based 3D environment
 - Post-processing effects (bloom, tone mapping)
 - 60fps target performance
 - Dynamic lighting system
 
-### 2️⃣ AI Core (`AICore.js`)
+### I Core (`AICore.js`)
 - Central reactive sphere
 - Responds to voice volume
 - Provides visual feedback
 - Particle field animation
 - Energy rings
 
-### 3️⃣ Gesture Engine (`GestureEngine.js`)
+### Gesture Engine (`GestureEngine.js`)
 - MediaPipe hand tracking
 - Real-time gesture recognition
 - Pinch, swipe, spread detection
 - 3D hand position mapping
 - Cursor feedback
 
-### 4️⃣ Voice Engine (`VoiceEngine.js`)
+### Voice Engine (`VoiceEngine.js`)
 - Web Speech API integration
 - Natural language processing
 - Command parsing and routing
 - Website shortcuts
 - Command history
 
-### 5️⃣ Window Manager (`WindowManager.js`)
+### Window Manager (`WindowManager.js`)
 - CSS3D rendering for HTML content
 - Real iframe-based browsing
 - Spatial window positioning
@@ -113,7 +116,7 @@ HELIOS consists of **5 integrated subsystems**:
 - Session persistence
 - Multiple layout modes
 
-### 6️⃣ Audio System (`AudioSystem.js`)
+### Audio System (`AudioSystem.js`)
 - Procedural sound generation
 - Spatial audio feedback
 - Ambient background
@@ -121,9 +124,9 @@ HELIOS consists of **5 integrated subsystems**:
 
 ---
 
-## 🌟 Features
+## Features
 
-### ✅ Implemented
+### Implemented
 - [x] Real-time hand tracking
 - [x] Voice command recognition
 - [x] 3D spatial environment
@@ -153,7 +156,7 @@ HELIOS consists of **5 integrated subsystems**:
 
 ---
 
-## 🎨 Customization
+## Customization
 
 ### Changing Colors
 Edit `css/core.css`:
@@ -182,7 +185,7 @@ this.maxWindows = 8; // Change this value
 
 ---
 
-## 🔧 Technical Requirements
+## Technical Requirements
 
 ### Browser Support
 - **Recommended**: Chrome 90+, Edge 90+
@@ -200,7 +203,7 @@ this.maxWindows = 8; // Change this value
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Camera not working
 - Check browser permissions
@@ -225,7 +228,7 @@ this.maxWindows = 8; // Change this value
 
 ---
 
-## 📁 File Structure
+## File Structure
 
 ```
 HELIOS/
@@ -246,7 +249,7 @@ HELIOS/
 
 ---
 
-## 🧠 How It Works
+## How It Works
 
 ### Gesture Tracking
 1. Camera captures video feed
@@ -271,7 +274,7 @@ HELIOS/
 
 ---
 
-## 🎯 Vision
+## Vision
 
 HELIOS demonstrates what browsing could look like in a spatial computing future:
 
@@ -284,13 +287,13 @@ It's a statement: **Browsing doesn't have to be flat.**
 
 ---
 
-## 📄 License
+## License
 
 This is a demonstration project showcasing spatial computing concepts.
 
 ---
 
-## 🙏 Credits
+## Credits
 
 **Built with:**
 - [Three.js](https://threejs.org/) - 3D rendering
@@ -302,7 +305,7 @@ HELIOS - A spatial operating system for the web
 
 ---
 
-## 🚀 Future Direction
+## Future Direction
 
 HELIOS is a proof-of-concept that could evolve into:
 
