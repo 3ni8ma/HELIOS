@@ -143,7 +143,7 @@ HELIOS consists of **5 integrated subsystems**:
 - [x] Keyboard shortcuts
 - [x] Real browser functionality (iframes)
 
-### 🚧 Planned Enhancements
+### Planned Enhancements
 - [ ] Two-hand resize gestures
 - [ ] Depth-based window interaction
 - [ ] Voice-based web search within pages
@@ -317,4 +317,4 @@ HELIOS is a proof-of-concept that could evolve into:
 
 ---
 
-**Experience the future of browsing. Welcome to HELIOS.** 🌐✨
+**Experience the future of browsing. Welcome to HELIOS.** 
