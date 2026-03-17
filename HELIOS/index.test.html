@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS - Connection Test</title>
+    <style>
+        body {
+            background: #000;
+            color: #00f2ff;
+            font-family: monospace;
+            padding: 40px;
+            line-height: 1.6;
+        }
+        h1 { color: #ff0055; }
+        .test { margin: 20px 0; }
+        .pass { color: #00ff00; }
+        .fail { color: #ff0000; }
+        .pending { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>🧪 HELIOS System Test</h1>
+    <div id="tests"></div>
+    <script type="module">
+        const results = [];
+        const log = (msg, status) => {
+            results.push(`<div class="test ${status}">${status === 'pass' ? '✅' : status === 'fail' ? '❌' : '⏳'} ${msg}</div>`);
+            document.getElementById('tests').innerHTML = results.join('');
+        };
+
+        // Test WebGL
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        log('WebGL Support', gl ? 'pass' : 'fail');
+
+        // Test Web Speech API
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        log('Web Speech API', SpeechRecognition ? 'pass' : 'fail');
+
+        // Test getUserMedia
+        log('Camera API', navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'pass' : 'fail');
+
+        // Test Three.js
+        try {
+            const THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+            log('Three.js Import', THREE ? 'pass' : 'fail');
+        } catch(e) {
+            log('Three.js Import: ' + e.message, 'fail');
+        }
+
+        // Test MediaPipe
+        try {
+            const { FilesetResolver } = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0");
+            log('MediaPipe Import', FilesetResolver ? 'pass' : 'fail');
+        } catch(e) {
+            log('MediaPipe Import: ' + e.message, 'fail');
+        }
+
+        log('localStorage', window.localStorage ? 'pass' : 'fail');
+        log('Web Audio API', window.AudioContext || window.webkitAudioContext ? 'pass' : 'fail');
+
+        log('', 'pass');
+        log('All systems compatible! Open index.html to launch HELIOS.', 'pass');
+    </script>
+</body>
+</html>

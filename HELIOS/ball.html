@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Ball - HELIOS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            font-family: 'Arial', sans-serif;
+            color: #00f2ff;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 20, 30, 0.8);
+            padding: 15px 20px;
+            border: 1px solid rgba(0, 242, 255, 0.3);
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        #hud h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #00f2ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #hud p {
+            margin: 5px 0;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .status-active {
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .status-inactive {
+            color: #666;
+        }
+
+        #video {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 240px;
+            height: 180px;
+            border: 2px solid rgba(0, 242, 255, 0.3);
+            border-radius: 8px;
+            transform: scaleX(-1);
+            opacity: 0.7;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-size: 18px;
+            color: #00f2ff;
+        }
+
+        .spinner {
+            border: 3px solid rgba(0, 242, 255, 0.1);
+            border-top: 3px solid #00f2ff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p id="loading-text">Starting HELIOS...</p>
+        <p id="loading-details" style="font-size: 12px; margin-top: 10px; color: #888;"></p>
+    </div>
+
+    <div id="hud" style="display: none;">
+        <h3>🎮 Interactive Ball</h3>
+        <p><strong>Mode:</strong> <span id="mode">Idle</span></p>
+        <p><strong>Ball Size:</strong> <span id="size">1.0</span></p>
+        <p><strong>Velocity:</strong> <span id="velocity">0.0</span></p>
+        <p><strong>Hands Detected:</strong> <span id="hands">0</span></p>
+    </div>
+
+    <video id="video" autoplay playsinline style="display: none;"></video>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+
+        // ============================================
+        // SCENE SETUP
+        // ============================================
+        let scene, camera, renderer, composer;
+        let ball, floor, cursor;
+        let handLandmarker, video;
+        
+        // Physics state
+        const ballState = {
+            position: new THREE.Vector3(0, 3, 0),
+            velocity: new THREE.Vector3(0, 0, 0),
+            isPicked: false,
+            targetPosition: new THREE.Vector3(),
+            baseScale: 1.5,
+            currentScale: 1.5,
+            rotation: new THREE.Euler(0, 0, 0),
+            angularVelocity: new THREE.Vector3(0, 0, 0)
+        };
+
+        // Gesture detection
+        const gestureState = {
+            isPinching: false,
+            prevPinchDist: 0,
+            twoHandDist: 0,
+            prevTwoHandDist: 0,
+            bothHandsPinching: false,
+            mode: 'idle',
+            prevHandPosition: new THREE.Vector2(),
+            handMoveDelta: new THREE.Vector2(),
+            prevTwoHandCenter: new THREE.Vector2(),
+            twoHandMoveDelta: new THREE.Vector2()
+        };
+
+        // Physics constants
+        const GRAVITY = -9.8;
+        const DAMPING = 0.98;
+        const FLOOR_Y = -3;
+        const BOUNCE_FACTOR = 0.6;
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        async function init() {
+            console.log('🌟 Starting Interactive Ball...');
+
+            // Setup Three.js scene
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, 10);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // Post-processing
+            const renderPass = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.5, 0.4, 0.85
+            );
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderPass);
+            composer.addPass(bloomPass);
+
+            // Lighting (brighter for better Earth visibility)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);  // Increased from 0.5
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);  // Increased from 1
+            directionalLight.position.set(5, 10, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.near = 0.1;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -10;
+            directionalLight.shadow.camera.right = 10;
+            directionalLight.shadow.camera.top = 10;
+            directionalLight.shadow.camera.bottom = -10;
+            scene.add(directionalLight);
+            
+            // Add fill light from opposite side for better visibility
+            const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            fillLight.position.set(-5, 5, -5);
+            scene.add(fillLight);
+
+            // Create Earth ball with realistic textures
+            const ballGeometry = new THREE.SphereGeometry(ballState.baseScale, 128, 128);
+            
+            console.log('🌍 Loading Earth textures...');
+            
+            // Load Earth textures with progress tracking
+            const textureLoader = new THREE.TextureLoader();
+            let texturesLoaded = 0;
+            const totalTextures = 3;
+            
+            function onTextureLoad() {
+                texturesLoaded++;
+                console.log(`✅ Texture loaded: ${texturesLoaded}/${totalTextures}`);
+                if (texturesLoaded === totalTextures) {
+                    console.log('🌍 All Earth textures loaded successfully!');
+                }
+            }
+            
+            function onTextureError(error) {
+                console.error('❌ Error loading texture:', error);
+            }
+            
+            // High-resolution Earth day texture
+            const earthTexture = textureLoader.load(
+                'https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg',
+                onTextureLoad,
+                undefined,
+                onTextureError
+            );
+            
+            // Earth bump map for terrain detail
+            const bumpMap = textureLoader.load(
+                'https://raw.githubusercontent.com/turban/webgl-earth/master/images/elev_bump_4k.jpg',
+                onTextureLoad,
+                undefined,
+                onTextureError
+            );
+            
+            // Earth specular map for oceans shine
+            const specularMap = textureLoader.load(
+                'https://raw.githubusercontent.com/turban/webgl-earth/master/images/water_4k.png',
+                onTextureLoad,
+                undefined,
+                onTextureError
+            );
+            
+            const ballMaterial = new THREE.MeshPhongMaterial({
+                map: earthTexture,
+                bumpMap: bumpMap,
+                bumpScale: 0.15,  // Increased from 0.05 for more terrain detail
+                specularMap: specularMap,
+                specular: new THREE.Color(0x666666),  // Brighter ocean shine
+                shininess: 25,  // Increased shine
+                emissive: 0x222244,  // Brighter base glow
+                emissiveIntensity: 0.2  // Increased from 0.1
+            });
+            
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.position.copy(ballState.position);
+            ball.castShadow = true;
+            ball.receiveShadow = true;
+            scene.add(ball);
+            
+            // Add country and ocean labels
+            addEarthLabels();
+
+            // Create floor
+            const floorGeometry = new THREE.PlaneGeometry(20, 20);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1a1a2e,
+                metalness: 0.3,
+                roughness: 0.7
+            });
+            floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = FLOOR_Y;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Create cursor (hand indicator) - rendered ABOVE everything
+            const cursorGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+            const cursorMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff0055,
+                transparent: true,
+                opacity: 0.8,
+                depthTest: false, // Always render on top
+                depthWrite: false
+            });
+            cursor = new THREE.Mesh(cursorGeometry, cursorMaterial);
+            cursor.renderOrder = 999; // Render last (on top)
+            cursor.visible = false;
+            scene.add(cursor);
+
+            // Particles
+            createParticles();
+
+            // Initialize hand tracking
+            await initHandTracking();
+
+            // Start animation
+            animate();
+
+            // Show HUD
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            document.getElementById('video').style.display = 'block';
+
+            console.log('✅ Interactive Ball ready!');
+        }
+
+        // ============================================
+        // EARTH LABELS
+        // ============================================
+        function addEarthLabels() {
+            // Helper function to convert lat/lon to 3D position
+            function latLonToVector3(lat, lon, radius) {
+                const phi = (90 - lat) * (Math.PI / 180);
+                const theta = (lon + 180) * (Math.PI / 180);
+                
+                const x = -(radius * Math.sin(phi) * Math.cos(theta));
+                const z = (radius * Math.sin(phi) * Math.sin(theta));
+                const y = (radius * Math.cos(phi));
+                
+                return new THREE.Vector3(x, y, z);
+            }
+            
+            // Helper function to create a label sprite
+            function createLabel(text, position) {
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = 256;
+                canvas.height = 64;
+                
+                // Background
+                context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Text
+                context.font = 'Bold 20px Arial';
+                context.fillStyle = 'white';
+                context.textAlign = 'center';
+                context.textBaseline = 'middle';
+                context.fillText(text, canvas.width / 2, canvas.height / 2);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.copy(position);
+                sprite.scale.set(1, 0.25, 1);
+                
+                return sprite;
+            }
+            
+            const labelRadius = ballState.baseScale + 0.3; // Slightly above Earth surface
+            
+            // Country labels (15 major countries)
+            const countries = [
+                { name: 'USA', lat: 37, lon: -95 },
+                { name: 'Canada', lat: 56, lon: -106 },
+                { name: 'Brazil', lat: -10, lon: -55 },
+                { name: 'Russia', lat: 60, lon: 100 },
+                { name: 'China', lat: 35, lon: 105 },
+                { name: 'India', lat: 20, lon: 77 },
+                { name: 'Australia', lat: -25, lon: 135 },
+                { name: 'South Africa', lat: -30, lon: 25 },
+                { name: 'Egypt', lat: 26, lon: 30 },
+                { name: 'Germany', lat: 51, lon: 10 },
+                { name: 'UK', lat: 54, lon: -2 },
+                { name: 'Japan', lat: 36, lon: 138 },
+                { name: 'Mexico', lat: 23, lon: -102 },
+                { name: 'Argentina', lat: -34, lon: -64 },
+                { name: 'Saudi Arabia', lat: 24, lon: 45 }
+            ];
+            
+            // Ocean labels (5 major oceans)
+            const oceans = [
+                { name: 'Pacific Ocean', lat: 0, lon: -160 },
+                { name: 'Atlantic Ocean', lat: 0, lon: -30 },
+                { name: 'Indian Ocean', lat: -20, lon: 80 },
+                { name: 'Arctic Ocean', lat: 75, lon: 0 },
+                { name: 'Southern Ocean', lat: -65, lon: 0 }
+            ];
+            
+            // Add country labels
+            countries.forEach(country => {
+                const position = latLonToVector3(country.lat, country.lon, labelRadius);
+                const label = createLabel(country.name, position);
+                ball.add(label); // Attach to ball so it rotates with Earth
+            });
+            
+            // Add ocean labels
+            oceans.forEach(ocean => {
+                const position = latLonToVector3(ocean.lat, ocean.lon, labelRadius);
+                const label = createLabel(ocean.name, position);
+                label.material.opacity = 0.8;
+                ball.add(label); // Attach to ball so it rotates with Earth
+            });
+        }
+
+        // ============================================
+        // PARTICLES
+        // ============================================
+        function createParticles() {
+            const particlesGeometry = new THREE.BufferGeometry();
+            const particlesCnt = 5000;
+            const posArray = new Float32Array(particlesCnt * 3);
+
+            for (let i = 0; i < particlesCnt * 3; i++) {
+                posArray[i] = (Math.random() - 0.5) * 30;
+            }
+
+            particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            const particlesMaterial = new THREE.PointsMaterial({
+                size: 0.02,
+                color: 0x00f2ff,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            const particlesMesh = new THREE.Points(particlesGeometry, particlesMaterial);
+            scene.add(particlesMesh);
+        }
+
+        // ============================================
+        // HAND TRACKING
+        // ============================================
+        function updateLoadingText(message, details = '') {
+            const loadingText = document.getElementById('loading-text');
+            const loadingDetails = document.getElementById('loading-details');
+            if (loadingText) loadingText.textContent = message;
+            if (loadingDetails) loadingDetails.textContent = details;
+        }
+
+        async function initHandTracking() {
+            try {
+                updateLoadingText('📹 Requesting camera access...', 'Please allow camera permission');
+                console.log('📹 Initializing camera...');
+                video = document.getElementById('video');
+
+                // Get camera first
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: 640, height: 480 } 
+                });
+                video.srcObject = stream;
+                console.log('✅ Camera initialized');
+                updateLoadingText('✅ Camera ready', 'Starting video stream...');
+
+                // Wait for video to be ready
+                await new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+                console.log('✅ Video ready');
+                updateLoadingText('📥 Loading AI models...', 'Downloading hand tracking (may take 10-30 seconds)');
+
+                // Initialize MediaPipe
+                console.log('🤖 Loading hand tracking AI...');
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+                );
+                console.log('✅ MediaPipe loaded');
+                updateLoadingText('🤖 Initializing hand tracking...', 'Almost ready...');
+                
+                handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    numHands: 2
+                });
+                console.log('✅ Hand tracking ready!');
+                updateLoadingText('✅ Ready!', 'Loading Earth...');
+
+            } catch (error) {
+                console.error('❌ Hand tracking initialization failed:', error);
+                updateLoadingText('❌ Initialization failed', error.message);
+                alert('Failed to initialize camera or hand tracking. Please check permissions and reload the page.');
+            }
+        }
+
+        // ============================================
+        // GESTURE DETECTION
+        // ============================================
+        function detectGestures(landmarks) {
+            const handCount = landmarks.length;
+            document.getElementById('hands').textContent = handCount;
+
+            if (handCount === 0) {
+                gestureState.mode = 'idle';
+                gestureState.isPinching = false;
+                gestureState.bothHandsPinching = false;
+                cursor.visible = false;
+                return;
+            }
+
+            // Helper function to detect pinch
+            function isPinching(hand) {
+                const indexTip = hand[8];
+                const thumbTip = hand[4];
+                const pinchDist = Math.sqrt(
+                    Math.pow(indexTip.x - thumbTip.x, 2) +
+                    Math.pow(indexTip.y - thumbTip.y, 2) +
+                    Math.pow(indexTip.z - thumbTip.z, 2)
+                );
+                return pinchDist < 0.05;
+            }
+
+            // Helper function to detect fist/grab
+            function isGrabbing(hand) {
+                // Check if all fingertips are close to palm
+                const palm = hand[0]; // Wrist/palm base
+                const indexTip = hand[8];
+                const middleTip = hand[12];
+                const ringTip = hand[16];
+                const pinkyTip = hand[20];
+                
+                // Calculate average distance from fingertips to palm
+                const distances = [
+                    Math.sqrt(Math.pow(indexTip.x - palm.x, 2) + Math.pow(indexTip.y - palm.y, 2) + Math.pow(indexTip.z - palm.z, 2)),
+                    Math.sqrt(Math.pow(middleTip.x - palm.x, 2) + Math.pow(middleTip.y - palm.y, 2) + Math.pow(middleTip.z - palm.z, 2)),
+                    Math.sqrt(Math.pow(ringTip.x - palm.x, 2) + Math.pow(ringTip.y - palm.y, 2) + Math.pow(ringTip.z - palm.z, 2)),
+                    Math.sqrt(Math.pow(pinkyTip.x - palm.x, 2) + Math.pow(pinkyTip.y - palm.y, 2) + Math.pow(pinkyTip.z - palm.z, 2))
+                ];
+                
+                const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+                
+                // If average distance is small, hand is in fist position
+                return avgDist < 0.15;
+            }
+
+            // ONE HAND: Point, Pinch, and Rotate
+            if (handCount === 1) {
+                const hand = landmarks[0];
+                const indexTip = hand[8];
+                const thumbTip = hand[4];
+
+                // Update cursor position (increased range for bigger movement)
+                const cursorX = (0.5 - indexTip.x) * 32;  // Doubled from 16
+                const cursorY = (0.5 - indexTip.y) * 24;  // Doubled from 12
+                const cursorZ = -2;
+                
+                cursor.position.set(cursorX, cursorY, cursorZ);
+                cursor.visible = true;
+
+                const currentPinching = isPinching(hand);
+                const currentGrabbing = isGrabbing(hand);
+                const isHolding = currentPinching || currentGrabbing; // Either gesture works!
+
+                if (isHolding && !gestureState.isPinching) {
+                    // Just started pinching OR grabbing - pick up ball
+                    const ballDist = ball.position.distanceTo(cursor.position);
+                    if (ballDist < 3) {
+                        ballState.isPicked = true;
+                        ballState.velocity.set(0, 0, 0);
+                        ballState.angularVelocity.set(0, 0, 0);
+                        gestureState.mode = currentGrabbing ? 'grabbed (fist)' : 'picked (pinch)';
+                        ball.material.emissiveIntensity = 0.6;
+                        
+                        // Store initial hand position
+                        gestureState.prevHandPosition.set(indexTip.x, indexTip.y);
+                    }
+                } else if (!isHolding && gestureState.isPinching) {
+                    // Just released pinch/grab - drop ball
+                    if (ballState.isPicked) {
+                        ballState.isPicked = false;
+                        gestureState.mode = 'dropped';
+                        ball.material.emissiveIntensity = 0.3;
+                    }
+                }
+
+                gestureState.isPinching = isHolding;
+
+                // Move ball if picked (no rotation in single-hand mode)
+                if (ballState.isPicked && isHolding) {
+                    // Move ball to cursor position
+                    ballState.targetPosition.copy(cursor.position);
+                    ballState.targetPosition.z = 0;
+                    gestureState.mode = currentGrabbing ? 'moving (fist)' : 'moving (pinch)';
+                }
+            } else {
+                gestureState.isPinching = false;
+            }
+
+            // TWO HANDS: Rotation (open hands) OR Scaling (both pinching)
+            if (handCount === 2) {
+                const hand1 = landmarks[0];
+                const hand2 = landmarks[1];
+                
+                const hand1Pinching = isPinching(hand1);
+                const hand2Pinching = isPinching(hand2);
+                const bothPinching = hand1Pinching && hand2Pinching;
+
+                const palm1 = hand1[9]; // Middle of palm
+                const palm2 = hand2[9];
+
+                // Calculate center point between two hands
+                const currentCenter = new THREE.Vector2(
+                    (palm1.x + palm2.x) / 2,
+                    (palm1.y + palm2.y) / 2
+                );
+
+                if (bothPinching) {
+                    // BOTH HANDS PINCHING: Rotation + Scaling simultaneously
+                    
+                    // ROTATION: Track hand movement
+                    if (gestureState.prevTwoHandCenter.x !== 0 || gestureState.prevTwoHandCenter.y !== 0) {
+                        // Calculate movement of center point
+                        gestureState.twoHandMoveDelta.subVectors(currentCenter, gestureState.prevTwoHandCenter);
+                        
+                        // Convert hand movement to rotation (ULTRA HIGH sensitivity)
+                        ballState.angularVelocity.y = -gestureState.twoHandMoveDelta.x * 500; // Horizontal -> Y rotation
+                        ballState.angularVelocity.x = gestureState.twoHandMoveDelta.y * 500;  // Vertical -> X rotation
+                    }
+                    
+                    // SCALING: Track distance between hands
+                    const twoHandDist = Math.sqrt(
+                        Math.pow(palm1.x - palm2.x, 2) +
+                        Math.pow(palm1.y - palm2.y, 2) +
+                        Math.pow(palm1.z - palm2.z, 2)
+                    );
+
+                    if (gestureState.bothHandsPinching && gestureState.prevTwoHandDist > 0) {
+                        const scaleDelta = (twoHandDist - gestureState.prevTwoHandDist) * 10;
+                        ballState.currentScale = Math.max(0.5, Math.min(4, ballState.currentScale + scaleDelta));
+                        ball.scale.setScalar(ballState.currentScale);
+                    }
+
+                    gestureState.prevTwoHandDist = twoHandDist;
+                    gestureState.prevTwoHandCenter.copy(currentCenter);
+                    gestureState.mode = 'rotating + scaling';
+                } else {
+                    // HANDS OPEN (not pinching): No action
+                    gestureState.mode = 'two hands (not pinching)';
+                    gestureState.prevTwoHandCenter.set(0, 0);
+                    gestureState.prevTwoHandDist = 0;
+                }
+
+                gestureState.bothHandsPinching = bothPinching;
+            } else {
+                gestureState.prevTwoHandDist = 0;
+                gestureState.bothHandsPinching = false;
+                gestureState.prevTwoHandCenter.set(0, 0);
+            }
+
+            // Update HUD
+            document.getElementById('mode').textContent = gestureState.mode;
+            document.getElementById('mode').className = gestureState.mode !== 'idle' ? 'status-active' : 'status-inactive';
+        }
+
+        // ============================================
+        // PHYSICS UPDATE
+        // ============================================
+        function updatePhysics(deltaTime) {
+            if (!ballState.isPicked) {
+                // Apply gravity
+                ballState.velocity.y += GRAVITY * deltaTime;
+
+                // Apply damping
+                ballState.velocity.multiplyScalar(DAMPING);
+
+                // Update position
+                ballState.position.add(ballState.velocity.clone().multiplyScalar(deltaTime));
+
+                // Floor collision
+                const ballRadius = ballState.currentScale;
+                if (ballState.position.y - ballRadius <= FLOOR_Y) {
+                    ballState.position.y = FLOOR_Y + ballRadius;
+                    ballState.velocity.y = -ballState.velocity.y * BOUNCE_FACTOR;
+                    
+                    // Stop bouncing if velocity too small
+                    if (Math.abs(ballState.velocity.y) < 0.1) {
+                        ballState.velocity.y = 0;
+                    }
+                }
+
+                // Update ball position
+                ball.position.copy(ballState.position);
+                
+                // Apply rotation damping when not picked
+                ballState.angularVelocity.multiplyScalar(0.95);
+            } else {
+                // Smoothly follow hand when picked
+                ballState.position.lerp(ballState.targetPosition, 0.2);
+                ball.position.copy(ballState.position);
+            }
+
+            // Apply rotation from angular velocity
+            ballState.rotation.x += ballState.angularVelocity.x * deltaTime;
+            ballState.rotation.y += ballState.angularVelocity.y * deltaTime;
+            ballState.rotation.z += ballState.angularVelocity.z * deltaTime;
+            ball.rotation.copy(ballState.rotation);
+
+            // Update HUD
+            const speed = ballState.velocity.length();
+            document.getElementById('velocity').textContent = speed.toFixed(2);
+            document.getElementById('size').textContent = ballState.currentScale.toFixed(2);
+        }
+
+        // ============================================
+        // ANIMATION LOOP
+        // ============================================
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000; // Convert to seconds
+            lastTime = currentTime;
+
+            // Hand tracking
+            if (handLandmarker && video.readyState >= 2) {
+                const results = handLandmarker.detectForVideo(video, currentTime);
+                if (results.landmarks && results.landmarks.length > 0) {
+                    detectGestures(results.landmarks);
+                } else {
+                    detectGestures([]);
+                }
+            }
+
+            // Physics
+            updatePhysics(deltaTime);
+
+            // Render
+            composer.render();
+        }
+
+        // ============================================
+        // WINDOW RESIZE
+        // ============================================
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ============================================
+        // START
+        // ============================================
+        init();
+    </script>
+</body>
+</html>

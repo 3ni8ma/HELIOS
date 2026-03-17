@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS - Debug Test</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: #00f2ff;
+            font-family: monospace;
+            padding: 20px;
+        }
+        #log {
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+        .success { color: #00ff00; }
+        .error { color: #ff0000; }
+        .warning { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>HELIOS Debug Console</h1>
+    <div id="log"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        const log = document.getElementById('log');
+        
+        function addLog(message, type = 'info') {
+            const line = document.createElement('div');
+            line.className = type;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(line);
+            console.log(message);
+        }
+
+        addLog('Starting HELIOS initialization test...', 'warning');
+
+        // Test 1: Three.js loading
+        try {
+            const THREE = await import('three');
+            addLog('✓ Three.js loaded successfully', 'success');
+            addLog(`  Version: ${THREE.REVISION}`, 'success');
+        } catch (e) {
+            addLog(`✗ Three.js failed to load: ${e.message}`, 'error');
+        }
+
+        // Test 2: Load RenderEngine
+        try {
+            const { RenderEngine } = await import('./js/core/RenderEngine.js');
+            addLog('✓ RenderEngine module loaded', 'success');
+            
+            const engine = new RenderEngine();
+            addLog('✓ RenderEngine instance created', 'success');
+        } catch (e) {
+            addLog(`✗ RenderEngine failed: ${e.message}`, 'error');
+            console.error(e);
+        }
+
+        // Test 3: Load AudioSystem
+        try {
+            const { AudioSystem } = await import('./js/core/AudioSystem.js');
+            addLog('✓ AudioSystem module loaded', 'success');
+        } catch (e) {
+            addLog(`✗ AudioSystem failed: ${e.message}`, 'error');
+        }
+
+        // Test 4: Load GestureEngine
+        try {
+            const { GestureEngine } = await import('./js/core/GestureEngine.js');
+            addLog('✓ GestureEngine module loaded', 'success');
+        } catch (e) {
+            addLog(`✗ GestureEngine failed: ${e.message}`, 'error');
+        }
+
+        // Test 5: Load VoiceEngine
+        try {
+            const { VoiceEngine } = await import('./js/core/VoiceEngine.js');
+            addLog('✓ VoiceEngine module loaded', 'success');
+        } catch (e) {
+            addLog(`✗ VoiceEngine failed: ${e.message}`, 'error');
+        }
+
+        // Test 6: Load WindowManager
+        try {
+            const { WindowManager } = await import('./js/core/WindowManager.js');
+            addLog('✓ WindowManager module loaded', 'success');
+        } catch (e) {
+            addLog(`✗ WindowManager failed: ${e.message}`, 'error');
+        }
+
+        // Test 7: Load AICore
+        try {
+            const { AICore } = await import('./js/core/AICore.js');
+            addLog('✓ AICore module loaded', 'success');
+        } catch (e) {
+            addLog(`✗ AICore failed: ${e.message}`, 'error');
+        }
+
+        addLog('=================================', 'warning');
+        addLog('Module loading test complete!', 'warning');
+        addLog('Check console for detailed errors', 'warning');
+    </script>
+</body>
+</html>

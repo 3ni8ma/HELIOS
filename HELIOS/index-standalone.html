@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HELIOS - Spatial Browser (Standalone)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background: #000;
+            color: #00f2ff;
+            overflow: hidden;
+        }
+
+        #hud {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .hud-module {
+            position: absolute;
+            padding: 15px 25px;
+            background: rgba(0, 20, 30, 0.8);
+            border: 1px solid rgba(0, 242, 255, 0.3);
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        #voice-status {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            border-bottom: 3px solid #00f2ff;
+        }
+
+        #system-stats {
+            bottom: 20px;
+            right: 20px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .stat-line {
+            margin: 5px 0;
+        }
+
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+        }
+
+        #camera-feed {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 200px;
+            height: 150px;
+            border: 2px solid #00f2ff;
+            border-radius: 10px;
+            transform: scaleX(-1);
+            opacity: 0.6;
+            z-index: 999;
+        }
+
+        #spatial-cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00f2ff;
+            border-radius: 50%;
+            background: rgba(0, 242, 255, 0.3);
+            pointer-events: none;
+            z-index: 1001;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 20px #00f2ff;
+            display: none;
+        }
+
+        .browser-window {
+            position: absolute;
+            background: rgba(10, 10, 20, 0.95);
+            border: 2px solid #00f2ff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 40px rgba(0, 242, 255, 0.5);
+            pointer-events: auto;
+        }
+
+        .window-header {
+            background: rgba(0, 242, 255, 0.1);
+            padding: 10px;
+            border-bottom: 1px solid #00f2ff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+        }
+
+        .window-title {
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .window-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .window-btn {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .window-btn.close { background: #ff0055; }
+        .window-btn.minimize { background: #ffaa00; }
+        .window-btn:hover { transform: scale(1.2); }
+
+        .window-content {
+            width: 100%;
+            height: calc(100% - 40px);
+        }
+
+        .window-content iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .recording {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <!-- HUD -->
+    <div id="hud">
+        <div id="voice-status" class="hud-module">
+            <span id="voice-text">HELIOS INITIALIZING...</span>
+        </div>
+        
+        <div id="system-stats" class="hud-module">
+            <div class="stat-line">FPS: <span id="fps">60</span></div>
+            <div class="stat-line">WINDOWS: <span id="window-count">0</span></div>
+            <div class="stat-line">MODE: <span id="current-mode">SPATIAL</span></div>
+        </div>
+    </div>
+
+    <!-- Camera Feed -->
+    <video id="camera-feed" autoplay playsinline></video>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Spatial Cursor -->
+    <div id="spatial-cursor"></div>
+
+    <!-- Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- Main Application -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0';
+
+        console.log('🌟 HELIOS Standalone Starting...');
+
+        // ==================== CORE STATE ====================
+        const state = {
+            scene: null,
+            camera: null,
+            renderer: null,
+            composer: null,
+            aiCore: null,
+            particles: null,
+            handLandmarker: null,
+            handPosition: { x: 0, y: 0, z: 0 },
+            isPinching: false,
+            windows: [],
+            voiceRecognition: null
+        };
+
+        // ==================== INITIALIZE 3D SCENE ====================
+        function initScene() {
+            console.log('✓ Initializing 3D scene...');
+            
+            // Scene
+            state.scene = new THREE.Scene();
+            state.scene.fog = new THREE.FogExp2(0x000000, 0.02);
+
+            // Camera
+            state.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            state.camera.position.z = 10;
+
+            // Renderer
+            state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            state.renderer.setSize(window.innerWidth, window.innerHeight);
+            state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.getElementById('canvas-container').appendChild(state.renderer.domElement);
+
+            // Post-processing
+            state.composer = new EffectComposer(state.renderer);
+            state.composer.addPass(new RenderPass(state.scene, state.camera));
+            const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 2.0, 0.4, 0.85);
+            state.composer.addPass(bloom);
+
+            // Lighting
+            state.scene.add(new THREE.AmbientLight(0x00f2ff, 0.3));
+            const light1 = new THREE.DirectionalLight(0x00f2ff, 0.5);
+            light1.position.set(5, 5, 5);
+            state.scene.add(light1);
+
+            // AI Core (glowing sphere)
+            const coreGeo = new THREE.IcosahedronGeometry(1.5, 4);
+            const coreMat = new THREE.MeshStandardMaterial({
+                color: 0x00f2ff,
+                wireframe: true,
+                emissive: 0x00f2ff,
+                emissiveIntensity: 2
+            });
+            state.aiCore = new THREE.Mesh(coreGeo, coreMat);
+            state.scene.add(state.aiCore);
+
+            // Particles
+            const pGeo = new THREE.BufferGeometry();
+            const pPos = new Float32Array(10000 * 3);
+            for (let i = 0; i < 30000; i++) {
+                pPos[i] = (Math.random() - 0.5) * 30;
+            }
+            pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+            state.particles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x00f2ff, size: 0.015 }));
+            state.scene.add(state.particles);
+
+            console.log('✅ 3D scene ready');
+        }
+
+        // ==================== HAND TRACKING ====================
+        async function initHandTracking() {
+            console.log('✓ Initializing hand tracking...');
+            
+            try {
+                const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm');
+                state.handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+                        delegate: 'GPU'
+                    },
+                    runningMode: 'VIDEO',
+                    numHands: 2
+                });
+
+                const video = document.getElementById('camera-feed');
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                
+                console.log('✅ Hand tracking ready');
+                return true;
+            } catch (e) {
+                console.warn('⚠ Hand tracking unavailable:', e.message);
+                return false;
+            }
+        }
+
+        // ==================== VOICE CONTROL ====================
+        function initVoice() {
+            console.log('✓ Initializing voice control...');
+            
+            const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!Recognition) {
+                console.warn('⚠ Voice recognition not supported');
+                return false;
+            }
+
+            state.voiceRecognition = new Recognition();
+            state.voiceRecognition.continuous = true;
+            state.voiceRecognition.interimResults = false;
+
+            state.voiceRecognition.onresult = (event) => {
+                const cmd = event.results[event.results.length - 1][0].transcript.toLowerCase();
+                console.log('🎤 Command:', cmd);
+                document.getElementById('voice-text').textContent = cmd.toUpperCase();
+                handleVoiceCommand(cmd);
+            };
+
+            state.voiceRecognition.onstart = () => {
+                document.getElementById('voice-text').classList.add('recording');
+            };
+
+            state.voiceRecognition.onerror = (e) => {
+                console.warn('Voice error:', e.error);
+            };
+
+            try {
+                state.voiceRecognition.start();
+                console.log('✅ Voice control ready');
+                document.getElementById('voice-text').textContent = 'LISTENING...';
+                return true;
+            } catch (e) {
+                console.warn('⚠ Voice start failed:', e.message);
+                return false;
+            }
+        }
+
+        // ==================== VOICE COMMANDS ====================
+        function handleVoiceCommand(cmd) {
+            if (cmd.includes('open youtube') || cmd.includes('youtube')) {
+                createWindow('https://www.youtube.com', 'YouTube');
+            } else if (cmd.includes('open google') || cmd.includes('google')) {
+                createWindow('https://www.google.com', 'Google');
+            } else if (cmd.includes('open github') || cmd.includes('github')) {
+                createWindow('https://github.com', 'GitHub');
+            } else if (cmd.includes('search')) {
+                const query = cmd.replace('search', '').replace('for', '').trim();
+                createWindow(`https://www.google.com/search?q=${encodeURIComponent(query)}`, 'Search');
+            } else if (cmd.includes('close') || cmd.includes('clear')) {
+                closeAllWindows();
+            }
+        }
+
+        // ==================== WINDOW MANAGEMENT ====================
+        function createWindow(url, title = 'Browser') {
+            const win = document.createElement('div');
+            win.className = 'browser-window';
+            win.style.width = '600px';
+            win.style.height = '400px';
+            win.style.left = `${100 + state.windows.length * 50}px`;
+            win.style.top = `${100 + state.windows.length * 50}px`;
+            win.style.zIndex = 100 + state.windows.length;
+
+            win.innerHTML = `
+                <div class="window-header">
+                    <div class="window-title">${title}</div>
+                    <div class="window-controls">
+                        <div class="window-btn minimize"></div>
+                        <div class="window-btn close" onclick="this.closest('.browser-window').remove(); updateWindowCount();"></div>
+                    </div>
+                </div>
+                <div class="window-content">
+                    <iframe src="${url}" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+                </div>
+            `;
+
+            // Make draggable
+            const header = win.querySelector('.window-header');
+            let isDragging = false;
+            let offsetX, offsetY;
+
+            header.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                offsetX = e.clientX - win.offsetLeft;
+                offsetY = e.clientY - win.offsetTop;
+                win.style.zIndex = 1000;
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    win.style.left = `${e.clientX - offsetX}px`;
+                    win.style.top = `${e.clientY - offsetY}px`;
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            document.body.appendChild(win);
+            state.windows.push(win);
+            updateWindowCount();
+            
+            console.log('✅ Window created:', title);
+        }
+
+        function closeAllWindows() {
+            state.windows.forEach(w => w.remove());
+            state.windows = [];
+            updateWindowCount();
+        }
+
+        function updateWindowCount() {
+            state.windows = Array.from(document.querySelectorAll('.browser-window'));
+            document.getElementById('window-count').textContent = state.windows.length;
+        }
+
+        // ==================== ANIMATION LOOP ====================
+        let lastTime = performance.now();
+        let frameCount = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Update hand tracking
+            if (state.handLandmarker) {
+                const video = document.getElementById('camera-feed');
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    const results = state.handLandmarker.detectForVideo(video, performance.now());
+                    
+                    if (results.landmarks && results.landmarks.length > 0) {
+                        const hand = results.landmarks[0];
+                        const indexTip = hand[8]; // Index finger tip
+                        
+                        // Update cursor
+                        const cursor = document.getElementById('spatial-cursor');
+                        cursor.style.display = 'block';
+                        cursor.style.left = `${(1 - indexTip.x) * window.innerWidth}px`;
+                        cursor.style.top = `${indexTip.y * window.innerHeight}px`;
+                        
+                        // Move AI core
+                        state.aiCore.position.x = (0.5 - indexTip.x) * 16;
+                        state.aiCore.position.y = (0.5 - indexTip.y) * 10;
+                    } else {
+                        document.getElementById('spatial-cursor').style.display = 'none';
+                    }
+                }
+            }
+
+            // Animate AI core
+            state.aiCore.rotation.y += 0.01;
+            state.particles.rotation.y += 0.001;
+
+            // Render
+            state.composer.render();
+
+            // FPS counter
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime > 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+        }
+
+        // ==================== MAIN INITIALIZATION ====================
+        async function init() {
+            console.log('🚀 Initializing HELIOS...');
+            
+            initScene();
+            await initHandTracking();
+            initVoice();
+            
+            animate();
+            
+            // Create demo window
+            setTimeout(() => {
+                createWindow('https://www.google.com', 'Google Search');
+                document.getElementById('voice-text').textContent = 'READY - TRY: "OPEN YOUTUBE"';
+            }, 1000);
+            
+            console.log('✅ HELIOS READY');
+        }
+
+        // Start
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            state.camera.aspect = window.innerWidth / window.innerHeight;
+            state.camera.updateProjectionMatrix();
+            state.renderer.setSize(window.innerWidth, window.innerHeight);
+            state.composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Export for debugging
+        window.HELIOS = state;
+    </script>
+</body>
+</html>
